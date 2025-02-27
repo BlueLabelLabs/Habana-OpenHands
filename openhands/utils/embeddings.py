@@ -110,7 +110,13 @@ class EmbeddingsLoader:
             from llama_index.embeddings.voyageai import VoyageEmbedding
 
             return VoyageEmbedding(
-                model_name='voyage-code-3',
+                model_name='thenlper/gte-large',
+            )
+        elif strategy == "gaudi":
+            from llama_index.embeddings.gaudi import GaudiEmbedding
+
+            return GaudiEmbedding(
+                model_name='gaudi-embed',
             )
         elif (strategy is not None) and (strategy.lower() == 'none'):
             # TODO: this works but is not elegant enough. The incentive is when
