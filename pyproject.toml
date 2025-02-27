@@ -80,6 +80,8 @@ llama-index-embeddings-azure-openai = "*"
 llama-index-embeddings-ollama = "*"
 voyageai = "*"
 llama-index-embeddings-voyageai = "*"
+llama-index-embeddings-gaudi = "*"
+optimum-habana = "1.14.1"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "0.9.4"
