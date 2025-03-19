@@ -2,6 +2,7 @@ import importlib.util
 import os
 
 from joblib import Parallel, delayed
+import torch
 
 from openhands.core.config import LLMConfig
 from openhands.core.logger import openhands_logger as logger
@@ -110,7 +111,13 @@ class EmbeddingsLoader:
             from llama_index.embeddings.voyageai import VoyageEmbedding
 
             return VoyageEmbedding(
-                model_name='voyage-code-3',
+                model_name='thenlper/gte-large',
+            )
+        elif strategy == "gaudi":
+            from llama_index.embeddings.gaudi import GaudiEmbedding
+
+            return GaudiEmbedding(
+                model_name='thenlper/gte-large',
             )
         elif (strategy is not None) and (strategy.lower() == 'none'):
             # TODO: this works but is not elegant enough. The incentive is when
@@ -118,31 +125,8 @@ class EmbeddingsLoader:
             # initialize an embedding model
             return None
         else:
-            from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-
-            # initialize the local embedding model
-            local_embed_model = HuggingFaceEmbedding(
-                model_name='BAAI/bge-small-en-v1.5'
-            )
-
-            # for local embeddings, we need torch
-            import torch
-
-            # choose the best device
-            # first determine what is available: CUDA, MPS, or CPU
-            if torch.cuda.is_available():
-                device = 'cuda'
-            elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
-                device = 'mps'
-            else:
-                device = 'cpu'
-                os.environ['CUDA_VISIBLE_DEVICES'] = ''
-                os.environ['PYTORCH_FORCE_CPU'] = (
-                    '1'  # try to force CPU to avoid errors
-                )
-
-                # override CUDA availability
-                torch.cuda.is_available = lambda: False
+            # choose the best device for embeddings
+            device = get_device()
 
             # disable MPS to avoid errors
             if device != 'mps' and hasattr(torch.backends, 'mps'):
@@ -151,6 +135,13 @@ class EmbeddingsLoader:
 
             # the device being used
             logger.debug(f'Using device for embeddings: {device}')
+            from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+
+            # initialize the local embedding model
+            local_embed_model = HuggingFaceEmbedding(
+                model_name='BAAI/bge-small-en-v1.5',
+                device=device,
+            )
 
             return local_embed_model
 
@@ -185,3 +176,44 @@ def insert_batch_docs(
         delayed(index.insert)(doc) for doc in documents
     )
     return results
+
+
+
+# -----------------------------------------------------------------------------------------
+# Utility function to determine the available compute device for PyTorch operations
+# -----------------------------------------------------------------------------------------
+def get_device(preferred_device: str | None = None) -> str:
+    """
+    Determines the available compute device for PyTorch operations.
+    
+    First checks for Habana HPU availability, then CUDA GPU, falling back to CPU if neither is available.
+    
+    Args:
+        preferred_device (str): The preferred device to use. Can be "hpu", "cuda", or "cpu".
+        
+    Returns:
+        str: The device to use for PyTorch operations.
+    """
+    if preferred_device == "hpu" or preferred_device is None:
+        if importlib.util.find_spec("habana_frameworks"):
+            from habana_frameworks.torch.utils.library_loader import load_habana_module
+            load_habana_module()
+            if torch.hpu.is_available():
+                return "hpu"
+            else:
+                print("HPU is not available, using CPU")
+                return "cpu"
+    if (preferred_device == "cuda" or preferred_device is None) and torch.cuda.is_available():
+        return "cuda"
+    if preferred_device=="mps" and torch.backends.mps.is_available() and torch.backends.mps.is_built():
+        return "mps"
+    if preferred_device == "cpu" or preferred_device is None:
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+        os.environ['PYTORCH_FORCE_CPU'] = (
+            '1'  # try to force CPU to avoid errors
+        )
+        # override CUDA availability
+        torch.cuda.is_available = lambda: False
+        
+        return "cpu"
+    raise ValueError(f"Invalid device: {preferred_device}")
